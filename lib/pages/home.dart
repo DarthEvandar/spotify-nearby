@@ -12,15 +12,8 @@ class Home extends StatefulWidget {
 }
 
 class HomeState extends State<Home> {
-  // TODO also need values here, thanks!
   String currentUser;
   String currentlyPlaying;
-
-  static List<String> userAccount = <String>[];
-  static List<String> songTitle = <String>[];
-  static List<String> songUrl = <String>[];
-  static List<List<String>> titleData = <List<String>>[userAccount,songTitle,songUrl];
-  static int _listLength = 0;
 
   @override
   void initState() {
@@ -32,7 +25,6 @@ class HomeState extends State<Home> {
   @override
   Widget build(BuildContext context) {
 
-    _listLengthMin();
     _loadNowPlaying();
     _loadCurrentUser();
     _updateTiles();
@@ -73,7 +65,7 @@ class HomeState extends State<Home> {
               Expanded(
               child: ListView.builder(
                 // Max 50 items for now, increase for each nearby
-                  itemCount: _listLength,
+                  itemCount: nearbyService.receivedUsers.length,
                   shrinkWrap: true,
                   padding: const EdgeInsets.all(16.0),
                   itemBuilder: (BuildContext context, int index) {
@@ -81,21 +73,21 @@ class HomeState extends State<Home> {
                     return InkWell(
                       onTap: () => setState(() {}),
                       child: ListTile(
-                        title: Text(titleData[1][index]),
-                        subtitle: Text(titleData[0][index]),
+                        title: Text(nearbyService.receivedUsers[index][1]),
+                        subtitle: Text(nearbyService.receivedUsers[index][0]),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
                             InkWell(
                               child: IconButton(
                                   icon: const Icon(Icons.music_note),
-                                  onPressed: () => _launchSpotify(titleData[2][index]),
+                                  onPressed: () => _launchSpotify(nearbyService.receivedUsers[index][2]),
                               ),
                             ),
                             InkWell(
                               child: IconButton(
                                   icon: const Icon(Icons.account_circle),
-                                  onPressed: () => _launchUser(titleData[0][index])
+                                  onPressed: () => _launchUser(nearbyService.receivedUsers[index][0])
                               )
                             )
                           ],
@@ -113,20 +105,6 @@ class HomeState extends State<Home> {
     );
   }
 
-  // Should actually be useless but doesn't hurt, might save us trouble down the line
-  void _listLengthMin() {
-    if (userAccount != null && songUrl != null && songTitle != null) {
-      setState(() {
-        for (int i = 0; i < 2; i++) {
-          userAccount.length < songTitle.length ?
-          _listLength = userAccount.length : _listLength = songTitle.length;
-          userAccount.length < songUrl.length
-              ? _listLength = userAccount.length
-              : _listLength = songUrl.length;
-        }
-      });
-    }
-  }
 
   Future<void> _launchSpotify(String track) async {
     final String url = 'https://open.spotify.com/track/$track';
@@ -165,9 +143,9 @@ class HomeState extends State<Home> {
 
   void _updateTiles() {
     setState(() {
-      userAccount = nearbyService.receivedUserAccount;
-      songTitle = nearbyService.receivedSongTitle;
-      songUrl = nearbyService.receivedSongUrl;
+      //userAccount = nearbyService.receivedUserAccount;
+     // songTitle = nearbyService.receivedSongTitle;
+      //songUrl = nearbyService.receivedSongUrl;
     });
   }
 }

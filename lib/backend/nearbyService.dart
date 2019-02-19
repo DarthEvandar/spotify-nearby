@@ -15,9 +15,8 @@ String currentSong = 'none';
 String trackID = 'none';
 
 List<dynamic> receivedUniqueID = <dynamic>[];
-List<String> receivedUserAccount = <String>[];
-List<String> receivedSongTitle = <String>[];
-List<String> receivedSongUrl = <String>[];
+
+List<List<String>> receivedUsers = <List<String>>[];
 
 String test = 'null';
 
@@ -31,12 +30,10 @@ void sendUniqueID(String message) {
 
 void clearData() {
   receivedUniqueID = null;
-  receivedUserAccount = null;
-  receivedSongTitle = null;
-  receivedSongUrl = null;
 }
 
 Future<void> startNearbyService() async {
+  sendUniqueID(uniqueID);
   final SharedPreferences prefs = await getStorageInstance();
   if (settingsService.isSharing(prefs)) {
     try {
@@ -62,9 +59,13 @@ Future<void> getConnectionsID() async {
   try {
     final List<dynamic> result = await platform.invokeMethod('getConnections');
     if (result != null) {
-      receivedUniqueID.replaceRange(0, receivedUniqueID.length, result);
-      int index = 0;
-        for (int i = index; i < receivedUniqueID.length; i++) {
+      receivedUniqueID = new List();
+      for (int i = 0; i < result.length; i++) {
+        receivedUniqueID.add(result[i].toString());
+      }
+      //receivedUniqueID.replaceRange(0, receivedUniqueID.length, result);
+      //int index = 0;
+      for (int i = 0; i < receivedUniqueID.length; i++) {
           final String payload = await createPayload();
           while (payload == null) {
             await Future <dynamic>.delayed(Duration(seconds: 5));
@@ -72,7 +73,7 @@ Future<void> getConnectionsID() async {
             await createPayload();
           }
         sendPayload(receivedUniqueID[i], payload);
-        index++;
+        //index++;
       }
     }
   } on PlatformException catch (e) {
@@ -90,51 +91,46 @@ void sendPayload(String endpointID, String payload) {
 
 Future<void> receivedData() async {
   String unparsedData;
-  try {
-    final String result = await platform.invokeMethod('receivedPayload');
-    if (result != null) {
-      unparsedData = result;
-      print('Recieved a valid payload');
+  final List<dynamic> result = await platform.invokeMethod('receivedPayload');
+  // Tests for valid data
+  for (int i = 0; i < result.length; i++) {
+    try {
+      if (result[i] != null) {
+        unparsedData = result[i].toString();
+        //print(unparsedData);
+        print('Recieved a valid payload');
+      } else {
+        print('Recievied a null paylaod');
+        return;
+      }
+    } on PlatformException catch (e) {
+      print(e.message);
+    }
+    List<String> parsedData;
+    if (unparsedData != null) {
+      //print('Parsing Data');
+      parsedData = unparsedData.split('|');
     } else {
-      print('Recievied a null paylaod');
+      print('Error parsedData not length 3');
+      print('Parsed data is: $parsedData');
+      print('Unparsed data is $unparsedData');
       return;
     }
-  } on PlatformException catch (e) {
-    print(e.message);
-  }
-  List<String> parsedData;
-  if (unparsedData != null) {
-    print('Parsing Data');
-    parsedData = unparsedData.split('|');
-  } else {
-    print('Error parsedData not length 3');
-    print('Parsed data is: $parsedData');
-    print('Unparsed data is $unparsedData');
-    return;
-  }
-  if (parsedData != null && parsedData.length == 3) {
-    bool isAdded = false;
-    if (receivedUserAccount != null) {
-      for (int i = 0; i < receivedUserAccount.length; i++) {
-        if (receivedUserAccount[i] == parsedData[0]) {
-          receivedSongTitle.insert(i, parsedData[1]);
-          receivedSongUrl.insert(i, parsedData[2]);
-          print('Updated old entry');
-          isAdded = true;
+
+    // Adds the data to the array
+    if (parsedData != null && parsedData.length == 3) {
+      for (int i = 0; i < receivedUsers.length; i++) {
+        if (receivedUsers[i][0] == parsedData[0]) {
+          receivedUsers[i][1] = parsedData[1];
+          receivedUsers[i][2] = parsedData[2];
+          //print('updated old entry');
+          return;
         }
       }
-      if (!isAdded) {
-        receivedUserAccount.add(parsedData[0]);
-        receivedSongTitle.add(parsedData[1]);
-        receivedSongUrl.add(parsedData[2]);
-        print('Added new entry');
-      }
-    } else {
-      print('Parse list error');
+
+      receivedUsers.add([parsedData[0], parsedData[1], parsedData[2]]);
+      //print('added a new entry');
     }
-  } else {
-    print('Got some null data somehow, idk fix it');
-    return;
   }
 }
 

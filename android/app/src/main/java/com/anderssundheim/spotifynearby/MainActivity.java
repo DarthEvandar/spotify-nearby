@@ -33,14 +33,12 @@ import com.google.android.gms.nearby.connection.PayloadTransferUpdate.Status;
 import com.google.android.gms.nearby.connection.Strategy;
 
 import java.util.ArrayList;
-import java.util.Random;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-
 public class MainActivity extends FlutterActivity {
 
-    // Permissions
+    // Permissions required for the app
     private static final String[] REQUIRED_PERMISSIONS =
             new String[] {
                     Manifest.permission.BLUETOOTH,
@@ -61,9 +59,13 @@ public class MainActivity extends FlutterActivity {
     private static final String TAG = "SpotifyNearby";
 
     // Non final
-    private ArrayList<String> receivedEndpointID = new ArrayList<>();
-    private String receivedID;
-    private String receivedPayload;
+    private ArrayList<String> establishedConnections = new ArrayList<>();
+    private ArrayList<String> receivedPayloads = new ArrayList<>();
+
+    //True if we are asking a discovered device to connect to us. While we ask, we cannot ask another device.
+    private boolean isConnecting = false;
+    private boolean isAdvertising = false;
+    private boolean isDiscovering = false;
 
     // Handle for nearby
     private ConnectionsClient connectionsClient;
@@ -73,13 +75,23 @@ public class MainActivity extends FlutterActivity {
             new PayloadCallback() {
                 @Override
                 public void onPayloadReceived(String endpointId, Payload payload) {
-                    receivedPayload = String.valueOf(new String(payload.asBytes(),UTF_8));
+                    String receivedPayloadString = String.valueOf(new String(payload.asBytes(),UTF_8));
+                    String[] parsed = receivedPayloadString.split("|");
+                    boolean isThere = false;
+                    for(int i = 0; i < receivedPayloads.size(); i++) {
+                        if(receivedPayloads.get(i).contains(parsed[0])) {
+                            isThere = true;
+                        }
+                    }
+                    if (!isThere) {
+                        receivedPayloads.add(receivedPayloadString);
+                    }
                 }
 
                 @Override
                 public void onPayloadTransferUpdate(String endpointId, PayloadTransferUpdate update) {
                     if (update.getStatus() == Status.SUCCESS) {
-                        // TODO add here
+                        Log.i(TAG, "onPayloadTransferUpdate: transfer complete: " + endpointId);
                     }
                 }
             };
@@ -89,12 +101,25 @@ public class MainActivity extends FlutterActivity {
             new EndpointDiscoveryCallback() {
                 @Override
                 public void onEndpointFound(String endpointId, DiscoveredEndpointInfo info) {
-                    Log.i(TAG, "onEndpointFound: endpoint found, connecting");
-                    connectionsClient.requestConnection(ID, endpointId, connectionLifecycleCallback);
+                    Log.i(TAG, "onEndpointFound: endpoint found, connecting to: " + endpointId);
+                    connectionsClient
+                            .requestConnection(ID, endpointId, connectionLifecycleCallback)
+                            .addOnSuccessListener(
+                                    (Void unused) -> {
+                                        Log.i(TAG, "onEndpointFound: endpoint found, connecting to: " + endpointId);
+                                    })
+                            .addOnFailureListener(
+                                    (Exception e) -> {
+                                        Log.i(TAG, "onEndpointFound: endpoint found, FAILED connecting to: " + endpointId);
+                                        connectionsClient.disconnectFromEndpoint(endpointId);
+                                    });
+
                 }
 
                 @Override
-                public void onEndpointLost(String endpointId) {}
+                public void onEndpointLost(String endpointId) {
+                    Log.i(TAG, "onEndpointLost: endpoint lost: " + endpointId);
+                }
             };
 
     // Callbacks for connections to other devices
@@ -104,58 +129,61 @@ public class MainActivity extends FlutterActivity {
                 public void onConnectionInitiated(String endpointId, ConnectionInfo connectionInfo) {
                     Log.i(TAG, "onConnectionInitiated: accepting connection");
                     connectionsClient.acceptConnection(endpointId, payloadCallback);
-                    receivedID = connectionInfo.getEndpointName();
                 }
 
                 @Override
                 public void onConnectionResult(String endpointId, ConnectionResolution result) {
                     if (result.getStatus().isSuccess()) {
-                        Log.i(TAG, "onConnectionResult: connection successful");
-                        if (!receivedEndpointID.contains(endpointId)) {
-                            receivedEndpointID.add(endpointId);
+                        isConnecting = false;
+                        Log.i(TAG, "onConnectionResult: connection successful: " + endpointId);
+                        if (!establishedConnections.contains(endpointId)) {
+                            establishedConnections.add(endpointId);
                         }
+                        Log.i(TAG, establishedConnections.toString());
                     } else {
-                        Log.i(TAG, "onConnectionResult: connection failed");
+                        Log.i(TAG, "onConnectionResult: connection failed: " + endpointId);
                     }
                 }
 
                 @Override
                 public void onDisconnected(String endpointId) {
-                    Log.i(TAG, "onDisconnected: disconnected from the opponent");
+                    establishedConnections.remove(endpointId);
+                    Log.i(TAG, "onDisconnected: disconnected from " + endpointId);
                 }
             };
 
-
-    public void advertiseAndDiscover() {
-        startAdvertising();
-        startDiscovery();
-        Log.i(TAG, "Searching");
+    /**
+     * @param destinationEndpointID is the endpoint to send the payload to
+     * @param payload a string of the devices payload
+     */
+    private void sendPayload(String destinationEndpointID, String payload) {
+        connectionsClient.sendPayload(destinationEndpointID, Payload.fromBytes(payload.getBytes(UTF_8)));
     }
 
-    public void stopAdvertiseAndDiscover() {
+    // Starts advertising and discovery
+    private void startAdvertiseAndDiscover() {
+        startAdvertising();
+        startDiscovery();
+    }
+
+    // Stops advertising and discovery
+    private void stopAdvertiseAndDiscover() {
+        Log.i(TAG, "Stopped advertising");
+        Log.i(TAG, "Stopped discovery");
         connectionsClient.stopAdvertising();
         connectionsClient.stopDiscovery();
     }
 
-    /** Starts looking for other players using Nearby Connections. */
+    // Starts searching for others that are advertising
     private void startDiscovery() {
-        // Note: Discovery may fail. To keep this demo simple, we don't handle failures.
-        connectionsClient.startDiscovery(
-                getPackageName(), endpointDiscoveryCallback,
-                new DiscoveryOptions.Builder().setStrategy(STRATEGY).build());
+        Log.i(TAG, "Started discovery");
+        connectionsClient.startDiscovery(getPackageName(), endpointDiscoveryCallback, new DiscoveryOptions.Builder().setStrategy(STRATEGY).build());
     }
 
-    /** Broadcasts our presence using Nearby Connections so other players can find us. */
+    // Broadcasts our presence using Nearby
     private void startAdvertising() {
-        // Note: Advertising may fail. To keep this demo simple, we don't handle failures.
-        connectionsClient.startAdvertising(
-                ID, getPackageName(), connectionLifecycleCallback,
-                new AdvertisingOptions.Builder().setStrategy(STRATEGY).build());
-    }
-
-    private void sendPayload(String destinationEndpointID, String payload) {
-        connectionsClient.sendPayload(
-                destinationEndpointID, Payload.fromBytes(payload.getBytes(UTF_8)));
+        Log.i(TAG, "Started advertising");
+        connectionsClient.startAdvertising(ID, getPackageName(), connectionLifecycleCallback, new AdvertisingOptions.Builder().setStrategy(STRATEGY).build());
     }
 
     @Override
@@ -165,17 +193,17 @@ public class MainActivity extends FlutterActivity {
 
       connectionsClient = Nearby.getConnectionsClient(this);
 
-
+      // This handles communication between dart and java
       new MethodChannel(getFlutterView(), CHANNEL).setMethodCallHandler(
               new MethodCallHandler() {
                   @Override
                   public void onMethodCall(MethodCall call, Result result) {
                       if (call.method.equals("startNearbyService")) {
-                          advertiseAndDiscover();
+                          startAdvertiseAndDiscover();
                           result.success("success");
                       }
                       if (call.method.equals("getConnections")) {
-                          result.success(receivedEndpointID);
+                          result.success(establishedConnections);
                       }
                       if (call.method.equals("payload")) {
                           String endpointID = call.argument("endpointID");
@@ -184,27 +212,26 @@ public class MainActivity extends FlutterActivity {
                           result.success("success");
                       }
                       if (call.method.equals("receivedPayload")) {
-                          result.success(receivedPayload);
+                          result.success(receivedPayloads);
                       }
                       if (call.method.equals("stopNearbyService")) {
                           stopAdvertiseAndDiscover();
                       }
-
-                      /*else {
-                          result.error("UNAVAILABLE", "NOT AVAILABLE", null);
-                      }*/
+                      if (call.method.equals("sendUniqueID")) {
+                          ID = call.argument("UniqueID");
+                      }
                   }
               });
 
 
   }
 
-
+    // Ignore all this shit down here, idk how it works but it does
+    // Handles require permissions just for different versions just let it be
     @TargetApi(Build.VERSION_CODES.M)
     @Override
     protected void onStart() {
         super.onStart();
-
         if (!hasPermissions(this, REQUIRED_PERMISSIONS)) {
             requestPermissions(REQUIRED_PERMISSIONS, REQUEST_CODE_REQUIRED_PERMISSIONS);
         }
